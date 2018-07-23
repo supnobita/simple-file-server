@@ -1,5 +1,5 @@
 # simple-file-server
 
-http://file-server/get?abc
-http://file-server/upload
-http://file-server/delete
+1) http://file-server/get?abc 
+2) http://file-server/upload
+3) http://file-server/delete
