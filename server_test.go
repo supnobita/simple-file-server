@@ -2,37 +2,60 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"mime/multipart"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"testing"
 )
 
 func TestreadfileHandler(t *testing.T) {
-	// Create a request to pass to our handler. We don't have any query parameters for now, so we'll
-	// pass 'nil' as the third parameter.
-	req, err := http.NewRequest("GET", "/health-check", nil)
+
+}
+
+func Test_uploadfileHandler(t *testing.T) {
+	targetUrl := "http://localhost:8080/upload"
+	filename := "./README.md"
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+
+	// this step is very important
+	fileWriter, err := bodyWriter.CreateFormFile("uploadfile", filename)
 	if err != nil {
-		t.Fatal(err)
+		fmt.Println("error writing to buffer")
+		t.Error(err)
 	}
 
-	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
-	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(HealthCheckHandler)
+	// open file handle
+	fh, err := os.Open(filename)
+	if err != nil {
+		fmt.Println("error opening file")
+		t.Error(err)
+	}
+	defer fh.Close()
 
-	// Our handlers satisfy http.Handler, so we can call their ServeHTTP method
-	// directly and pass in our Request and ResponseRecorder.
-	handler.ServeHTTP(rr, req)
-
-	// Check the status code is what we expect.
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusOK)
+	//iocopy
+	_, err = io.Copy(fileWriter, fh)
+	if err != nil {
+		t.Error(err)
 	}
 
-	// Check the response body is what we expect.
-	expected := `{"alive": true}`
-	if rr.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v",
-			rr.Body.String(), expected)
+	contentType := bodyWriter.FormDataContentType()
+	bodyWriter.Close()
+
+	resp, err := http.Post(targetUrl, contentType, bodyBuf)
+	if err != nil {
+		t.Error(err)
 	}
+	defer resp.Body.Close()
+	respbody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println(resp.Status)
+	fmt.Println(string(respbody))
+	t.Error(err)
 }
