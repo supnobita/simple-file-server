@@ -16,6 +16,7 @@ func TestreadfileHandler(t *testing.T) {
 
 }
 
+//curl --form uploadfile=@examples.desktop.gz  http://localhost:8080/upload
 func Test_uploadfileHandler(t *testing.T) {
 	targetUrl := "http://localhost:8080/upload"
 	filename := "./README.md"
