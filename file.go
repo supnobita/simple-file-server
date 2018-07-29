@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type DataFile struct {
@@ -46,6 +47,7 @@ func (df *DataFile) Read(w http.ResponseWriter, r *http.Request) error {
 	fmt.Println("Client requests: " + Filename)
 	//load meta data and check if has reference file
 	df.path = datapath + Filename
+	//if can't load meta data, may be file not found
 	if err := df.LoadMetaData(); err != nil {
 		http.Error(w, "File not found", http.StatusBadRequest)
 		return fmt.Errorf("Read metadata File not found: " + df.path)
@@ -105,13 +107,13 @@ func (df *DataFile) Write(w http.ResponseWriter, r *http.Request) error {
 	df.path = datapath + df.name
 
 	//if file exist on server return
-	if df.IsFileExist() {
+	if err := df.LoadMetaData(); err == nil {
 		fmt.Println("file exist " + df.path)
 		io.WriteString(w, "File "+df.name+" is Exist on Server, Use read api to get file")
 		return err
 	}
 
-	f, err := os.OpenFile(datapath+handler.Filename, os.O_WRONLY|os.O_CREATE, 0666)
+	f, err := os.OpenFile(df.path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		fmt.Println("write file error: " + err.Error())
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -133,15 +135,15 @@ func (df *DataFile) Write(w http.ResponseWriter, r *http.Request) error {
 		//check if this hash is exist
 		if md5value = hashmap[df.md5hash]; md5value != "" {
 			if df.IsDuplicatedFile(md5value) {
-				DeleteFile(df.path)
+				//load meta original file and add one refer
 				df.isduplicate = true
 				df.refPath = md5value
-				//load meta original file and add one refer
 				originalMetaFile, err := LoadMetaData(df.refPath)
 				if err == nil {
-					originalMetaFile.numOfRefer += 1 // increase num of refer file
+					originalMetaFile.numOfRefer++ // increase num of refer file
 					//save to disk
 					originalMetaFile.WriteMetaData()
+					DeleteFile(df.path)
 				}
 			} //if 2 file has different content, do nothing
 		} else {
@@ -150,8 +152,11 @@ func (df *DataFile) Write(w http.ResponseWriter, r *http.Request) error {
 		}
 
 	}
-	df.WriteMetaData()
-
+	if err := df.WriteMetaData(); err != nil {
+		fmt.Println("write file error: " + err.Error())
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return err
+	}
 	return nil
 }
 
@@ -166,13 +171,16 @@ func deepCompare(file1, file2 string) bool {
 	f1, err := os.Open(file1)
 	if err != nil {
 		log.Fatal(err)
+		return false
 	}
 
 	f2, err := os.Open(file2)
 	if err != nil {
 		log.Fatal(err)
+		return false
 	}
-
+	defer f1.Close()
+	defer f2.Close()
 	for {
 		b1 := make([]byte, chunkSize)
 		_, err1 := f1.Read(b1)
@@ -283,17 +291,18 @@ func (df *DataFile) WriteMetaData() error {
 //LoadMetaData load meta data file
 func (df *DataFile) LoadMetaData() error {
 	meta, err := LoadMetaData(df.path)
-	if err != nil && meta.numOfRefer < 0 {
+	if err == nil {
 		df.name = meta.name
 		df.size = meta.size
 		df.isduplicate = meta.isduplicate
 		df.md5hash = meta.md5hash
 		df.numOfRefer = meta.numOfRefer
 		df.refPath = meta.refPath
-		return nil
-	} else {
-		return err
+		//data := df.name + "--" + df.path + "--" + strconv.FormatInt(df.size, 10) +
+		//	"--" + strconv.FormatBool(df.isduplicate) + "--" + df.md5hash + "--" + df.refPath + "--" + strconv.Itoa(df.numOfRefer)
+		//fmt.Println("Loadmeta-test: " + data)
 	}
+	return err
 }
 
 //LoadMetaData load meta data file
@@ -301,6 +310,11 @@ func LoadMetaData(datafile string) (DataFile, error) {
 	if len(datafile) == 0 {
 		return NewDataFile(), os.ErrInvalid
 	}
+	//if file meta is not exist return error
+	if IsFileExist(datafile+".meta") == false {
+		return NewDataFile(), os.ErrNotExist
+	}
+
 	metadata := NewDataFile()
 	metadata.path = datafile
 	file, err := os.Open(metadata.path + ".meta")
@@ -340,8 +354,35 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		http.Error(w, "File not found", http.StatusBadRequest)
 		return fmt.Errorf("Read metadata File not found: " + df.path)
 	}
-	//if has no refer
-	if len(df.refPath) == 0{
-		if df.numOfRefer != 0
+	//if it's orignial file
+	if len(df.refPath) == 0 {
+		if df.numOfRefer > 0 {
+			http.Error(w, "File is Original and has many refer", http.StatusBadRequest)
+			return fmt.Errorf("File is Original and has many refer: " + df.path)
+		} else { // if has numofrefer = 0 delete file
+			//delete hashmap if value path is equal df.path, we will delete hashmap
+			if pathvalue := hashmap[df.md5hash]; strings.Compare(pathvalue, df.path) == 0 {
+				delete(hashmap, df.md5hash)
+			}
+			DeleteFile(df.path + ".meta")
+			DeleteFile(df.path)
+			fmt.Println("file delte OK " + df.path)
+			io.WriteString(w, "File "+df.name+" is deleted")
+			return nil
+		}
+	} else {
+		//if this file refer to other file, delete only meta data file
+		DeleteFile(df.path + ".meta")
+		fmt.Println("file delte OK " + df.path)
+		io.WriteString(w, "File "+df.name+" is deleted")
+		original, err := LoadMetaData(df.refPath)
+		if err != nil {
+			fmt.Println("file " + df.path + " " + err.Error())
+			return err
+		}
+		//decrease numofrefer
+		original.numOfRefer--
+		original.WriteMetaData()
+		return nil
 	}
 }

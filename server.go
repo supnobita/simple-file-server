@@ -35,5 +35,6 @@ func uploadfileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deletefileHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Hello World\n")
+	uploadFile := NewDataFile()
+	uploadFile.Delete(w, r)
 }
