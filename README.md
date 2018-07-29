@@ -2,16 +2,18 @@
 
 ## Build and Run
 - **Build docker image**
-...git clone https://github.com/supnobita/simple-file-server/
-...cd simple-file-server
-...docker build -t simple-file-server:v1 .
+``` bash
+git clone https://github.com/supnobita/simple-file-server/
+cd simple-file-server
+docker build -t simple-file-server:v1 .
+```
 
 - **Run container**
-...docker run -p 8080:8080 -v /root/data:/go/data simple-file-server:v1
+```docker run -p 8080:8080 -v /root/data:/go/data simple-file-server:v1```
 
 - **To build source code and rebuild docker image**
-...cd src code directory (cd simple-file-server)
-    run cmd ``` CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . ```
+cd src code directory (cd simple-file-server)
+run cmd ``` CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . ```
 
 ## API syntax
 - Read file: filename.txt:
