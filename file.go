@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type DataFile struct {
@@ -52,8 +51,13 @@ func (df *DataFile) Read(w http.ResponseWriter, r *http.Request) error {
 		http.Error(w, "File not found", http.StatusBadRequest)
 		return fmt.Errorf("Read metadata File not found: " + df.path)
 	}
-	if len(df.refPath) != 0 {
-		df.path = df.refPath //asign path to data
+	if len(df.refPath) != 0 || df.isduplicate == true {
+		//this file is duplicated file, we need to connect db find root path
+		hash, err := hashMongo.FindHash(df.md5hash)
+		if err != nil {
+			log.Fatal("Error find hash from db: " + df.md5hash + " of file: " + df.path)
+		}
+		df.path = hash.orig_path
 	}
 
 	//Check if file exists and open
@@ -129,26 +133,42 @@ func (df *DataFile) Write(w http.ResponseWriter, r *http.Request) error {
 
 	//gen hash of file
 	df.CalculateMD5Hash()
-	md5value := ""
+	//md5value := ""
 	//whether hash is valid or not
 	if len(df.md5hash) > 0 {
 		//check if this hash is exist
-		if md5value = hashmap[df.md5hash]; md5value != "" {
-			if df.IsDuplicatedFile(md5value) {
+		//if we cannot find hash => good
+		if hash, err := hashMongo.FindHash(df.md5hash); err == nil {
+			if df.IsDuplicatedFile(hash.orig_path) {
 				//load meta original file and add one refer
 				df.isduplicate = true
-				df.refPath = md5value
+				df.refPath = hash.orig_path
 				originalMetaFile, err := LoadMetaData(df.refPath)
 				if err == nil {
 					originalMetaFile.numOfRefer++ // increase num of refer file
 					//save to disk
 					originalMetaFile.WriteMetaData()
+					//write path whose file pointed to this originalMetaFile
+					originalMetaFile.WriteReferPathToMetaFile(df.path)
 					DeleteFile(df.path)
+				}
+				//Append this path to hash.refer_paths array and Update hash object
+				//append(hash.refer_paths,df.path)
+				if err := hashMongo.UpdateHash(hash); err != nil {
+					log.Fatal("Update hash error: " + err.Error())
+					http.Error(w, "DB connection Error", http.StatusBadRequest)
+					return err
 				}
 			} //if 2 file has different content, do nothing
 		} else {
 			//if hash is not exist, add it
-			hashmap[df.md5hash] = df.path
+			h := Hash{df.md5hash, df.path, []string{}}
+			err := hashMongo.InsertHash(h)
+			if err != nil {
+				log.Fatal("Add hash error: " + err.Error())
+				http.Error(w, "DB connection Error", http.StatusBadRequest)
+				return err
+			}
 		}
 
 	}
@@ -288,6 +308,21 @@ func (df *DataFile) WriteMetaData() error {
 	return nil
 }
 
+func (df *DataFile) WriteReferPathToMetaFile(refpath string) error {
+	// If the file doesn't exist, create it, or append to the file
+	f, err := os.OpenFile(df.path+".meta", os.O_APPEND|os.O_WRONLY, 0666)
+	if err != nil {
+		log.Fatal("Write ReferPath to meta file " + df.path + " has error: " + err.Error())
+	}
+	if _, err := f.Write([]byte("\n" + refpath)); err != nil {
+		log.Fatal("Write ReferPath to meta file " + df.path + " has error: " + err.Error())
+	}
+	if err := f.Close(); err != nil {
+		log.Fatal(err)
+	}
+	return err
+}
+
 //LoadMetaData load meta data file
 func (df *DataFile) LoadMetaData() error {
 	meta, err := LoadMetaData(df.path)
@@ -354,21 +389,88 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		http.Error(w, "File not found", http.StatusBadRequest)
 		return fmt.Errorf("Read metadata File not found: " + df.path)
 	}
+
+	//find hash key
+	hash, err := hashMongo.FindHash(df.md5hash)
+	if err != nil {
+		http.Error(w, "DB connection Error", http.StatusInternalServerError)
+		log.Fatal("Find hash " + df.md5hash + " error: " + err.Error())
+		return err
+	}
+
 	//if it's orignial file
-	if len(df.refPath) == 0 {
-		if df.numOfRefer > 0 {
-			http.Error(w, "File is Original and has many refer", http.StatusBadRequest)
-			return fmt.Errorf("File is Original and has many refer: " + df.path)
-		} else { // if has numofrefer = 0 delete file
-			//delete hashmap if value path is equal df.path, we will delete hashmap
-			if pathvalue := hashmap[df.md5hash]; strings.Compare(pathvalue, df.path) == 0 {
-				delete(hashmap, df.md5hash)
+	if df.isduplicate == false {
+
+		if len(hash.refer_paths) > 0 && hash.orig_path == df.path {
+			//if hash is original ? and has more refer file
+			// 1) chose next root file from it's refer files
+			metafile := NewDataFile()
+			for i := 0; i < len(hash.refer_paths); i++ {
+				metafile, err := LoadMetaData(hash.refer_paths[i])
+				if err != nil || metafile.path == "" { // if cannot load file, or meta is error
+					continue
+				} else {
+					if metafile.path == "" {
+						break
+					}
+					hash.orig_path = hash.refer_paths[i]
+					//delete refer_path
+					newReferPaths := append(hash.refer_paths[:i], hash.refer_paths[i+1:]...)
+					hash.refer_paths = newReferPaths
+					if err := hashMongo.UpdateHash(hash); err != nil {
+						http.Error(w, "DB connection Error", http.StatusInternalServerError)
+						log.Fatal("Update hash " + hash.key + " error: " + err.Error())
+						return err
+					}
+					// update meta data file of this refer_file
+					metafile.isduplicate = false // change to root state
+					metafile.refPath = ""
+					metafile.numOfRefer = len(hash.refer_paths)
+					metafile.WriteMetaData()
+					//final we delete meta data of old root file and rename old root file to new name
+					DeleteFile(df.path + ".meta")
+					if err := os.Rename(df.path, metafile.path); err != nil {
+						http.Error(w, "Server Error", http.StatusInternalServerError)
+						log.Fatal("Rename file error " + metafile.path + " error: " + err.Error())
+						return err
+					}
+					break
+				}
 			}
+			// if cannot find valid meta file or healthy refer file, treate as alone original file, delete
+			if metafile.path == "" {
+				if err := hashMongo.DeletetHashByKey(df.md5hash); err != nil {
+					http.Error(w, "Delete File error", http.StatusBadRequest)
+					return fmt.Errorf("Delete hash error: " + err.Error())
+				}
+				// final we delete meta file and file data
+				DeleteFile(df.path + ".meta")
+				DeleteFile(df.path)
+				fmt.Println("file delte OK " + df.path)
+				io.WriteString(w, "File "+df.name+" is deleted")
+				return nil
+			}
+
+		} else { // if has numofrefer = 0 delete file
+
+			// if this refer_paths == 0, it mean only one file map with this hash, delete
+			if len(hash.refer_paths) == 0 && hash.orig_path == df.path {
+				//delete hash key in mongo db
+				if err := hashMongo.DeletetHashByKey(df.md5hash); err != nil {
+					http.Error(w, "Delete File error", http.StatusBadRequest)
+					return fmt.Errorf("Delete hash error: " + err.Error())
+				}
+
+			}
+			// hash key is has more than 2 refer, may be this file is has same hash but content is difference
+			// we will delete file only
+			//delete meta file
 			DeleteFile(df.path + ".meta")
 			DeleteFile(df.path)
 			fmt.Println("file delte OK " + df.path)
 			io.WriteString(w, "File "+df.name+" is deleted")
 			return nil
+
 		}
 	} else {
 		//if this file refer to other file, delete only meta data file
@@ -383,6 +485,21 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		//decrease numofrefer
 		original.numOfRefer--
 		original.WriteMetaData()
+
+		for k := 0; k < len(hash.refer_paths); k++ {
+			if hash.refer_paths[k] == df.path {
+				//delete k
+				newReferPaths := append(hash.refer_paths[:k], hash.refer_paths[k+1:]...)
+				hash.refer_paths = newReferPaths
+				if err := hashMongo.UpdateHash(hash); err != nil {
+					http.Error(w, "DB connection Error", http.StatusInternalServerError)
+					log.Fatal("Update hash " + hash.key + " error: " + err.Error())
+					return err
+				}
+				break
+			}
+		}
 		return nil
 	}
+	return nil
 }
