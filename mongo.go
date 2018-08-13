@@ -19,9 +19,9 @@ const (
 )
 
 type Hash struct {
-	key         string
-	orig_path   string
-	refer_paths []string
+	Key        string   `json: "key" bson: "key"`
+	Origpath   string   `json: "orig_path" bson: "orig_path"`
+	Referpaths []string `json: "refer_paths" bson: "refer_paths"`
 }
 
 func (m *HashDAO) Connect() *mgo.Session {
@@ -51,7 +51,7 @@ func (m *HashDAO) FindHash(hash string) (Hash, error) {
 }
 
 func (m *HashDAO) UpdateHash(hash Hash) error {
-	err := db.C(COLLECTION).Update(bson.M{"key": hash.key}, hash)
+	err := db.C(COLLECTION).Update(bson.M{"key": hash.Key}, hash)
 	return err
 }
 

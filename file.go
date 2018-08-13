@@ -57,7 +57,7 @@ func (df *DataFile) Read(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			log.Fatal("Error find hash from db: " + df.md5hash + " of file: " + df.path)
 		}
-		df.path = hash.orig_path
+		df.path = hash.Origpath
 	}
 
 	//Check if file exists and open
@@ -139,21 +139,21 @@ func (df *DataFile) Write(w http.ResponseWriter, r *http.Request) error {
 		//check if this hash is exist
 		//if we cannot find hash => good
 		if hash, err := hashMongo.FindHash(df.md5hash); err == nil {
-			if df.IsDuplicatedFile(hash.orig_path) {
+			if df.IsDuplicatedFile(hash.Origpath) {
 				//load meta original file and add one refer
 				df.isduplicate = true
-				df.refPath = hash.orig_path
+				df.refPath = hash.Origpath
 				originalMetaFile, err := LoadMetaData(df.refPath)
 				if err == nil {
 					originalMetaFile.numOfRefer++ // increase num of refer file
 					//save to disk
 					originalMetaFile.WriteMetaData()
 					//write path whose file pointed to this originalMetaFile
-					originalMetaFile.WriteReferPathToMetaFile(df.path)
+					//originalMetaFile.WriteReferPathToMetaFile(df.path)
 					DeleteFile(df.path)
 				}
-				//Append this path to hash.refer_paths array and Update hash object
-				//append(hash.refer_paths,df.path)
+				//Append this path to hash.Referpaths array and Update hash object
+				hash.Referpaths = append(hash.Referpaths, df.path)
 				if err := hashMongo.UpdateHash(hash); err != nil {
 					log.Fatal("Update hash error: " + err.Error())
 					http.Error(w, "DB connection Error", http.StatusBadRequest)
@@ -401,31 +401,33 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 	//if it's orignial file
 	if df.isduplicate == false {
 
-		if len(hash.refer_paths) > 0 && hash.orig_path == df.path {
+		if len(hash.Referpaths) > 0 && hash.Origpath == df.path {
 			//if hash is original ? and has more refer file
 			// 1) chose next root file from it's refer files
 			metafile := NewDataFile()
-			for i := 0; i < len(hash.refer_paths); i++ {
-				metafile, err := LoadMetaData(hash.refer_paths[i])
+			for i := 0; i < len(hash.Referpaths); i++ {
+				metafile, err := LoadMetaData(hash.Referpaths[i])
 				if err != nil || metafile.path == "" { // if cannot load file, or meta is error
 					continue
 				} else {
 					if metafile.path == "" {
 						break
 					}
-					hash.orig_path = hash.refer_paths[i]
+					hash.Origpath = hash.Referpaths[i]
 					//delete refer_path
-					newReferPaths := append(hash.refer_paths[:i], hash.refer_paths[i+1:]...)
-					hash.refer_paths = newReferPaths
+					newReferPaths := append(hash.Referpaths[:i], hash.Referpaths[i+1:]...)
+					hash.Referpaths = newReferPaths
 					if err := hashMongo.UpdateHash(hash); err != nil {
 						http.Error(w, "DB connection Error", http.StatusInternalServerError)
-						log.Fatal("Update hash " + hash.key + " error: " + err.Error())
+						log.Fatal("Update hash " + hash.Key + " error: " + err.Error())
 						return err
 					}
 					// update meta data file of this refer_file
 					metafile.isduplicate = false // change to root state
 					metafile.refPath = ""
-					metafile.numOfRefer = len(hash.refer_paths)
+					metafile.numOfRefer = len(hash.Referpaths)
+					//delete meta data of new file first then save new meta file
+					DeleteFile(metafile.path + ".meta")
 					metafile.WriteMetaData()
 					//final we delete meta data of old root file and rename old root file to new name
 					DeleteFile(df.path + ".meta")
@@ -434,7 +436,9 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 						log.Fatal("Rename file error " + metafile.path + " error: " + err.Error())
 						return err
 					}
-					break
+					fmt.Println("file delte OK " + df.path)
+					io.WriteString(w, "File "+df.name+" is deleted")
+					return nil
 				}
 			}
 			// if cannot find valid meta file or healthy refer file, treate as alone original file, delete
@@ -454,7 +458,7 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		} else { // if has numofrefer = 0 delete file
 
 			// if this refer_paths == 0, it mean only one file map with this hash, delete
-			if len(hash.refer_paths) == 0 && hash.orig_path == df.path {
+			if len(hash.Referpaths) == 0 && hash.Origpath == df.path {
 				//delete hash key in mongo db
 				if err := hashMongo.DeletetHashByKey(df.md5hash); err != nil {
 					http.Error(w, "Delete File error", http.StatusBadRequest)
@@ -474,9 +478,6 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		}
 	} else {
 		//if this file refer to other file, delete only meta data file
-		DeleteFile(df.path + ".meta")
-		fmt.Println("file delte OK " + df.path)
-		io.WriteString(w, "File "+df.name+" is deleted")
 		original, err := LoadMetaData(df.refPath)
 		if err != nil {
 			fmt.Println("file " + df.path + " " + err.Error())
@@ -486,19 +487,24 @@ func (df *DataFile) Delete(w http.ResponseWriter, r *http.Request) error {
 		original.numOfRefer--
 		original.WriteMetaData()
 
-		for k := 0; k < len(hash.refer_paths); k++ {
-			if hash.refer_paths[k] == df.path {
+		for k := 0; k < len(hash.Referpaths); k++ {
+			if hash.Referpaths[k] == df.path {
 				//delete k
-				newReferPaths := append(hash.refer_paths[:k], hash.refer_paths[k+1:]...)
-				hash.refer_paths = newReferPaths
+				newReferPaths := append(hash.Referpaths[:k], hash.Referpaths[k+1:]...)
+				hash.Referpaths = newReferPaths
 				if err := hashMongo.UpdateHash(hash); err != nil {
 					http.Error(w, "DB connection Error", http.StatusInternalServerError)
-					log.Fatal("Update hash " + hash.key + " error: " + err.Error())
+					log.Fatal("Update hash " + hash.Key + " error: " + err.Error())
 					return err
 				}
 				break
 			}
 		}
+
+		DeleteFile(df.path + ".meta")
+		fmt.Println("file delte OK " + df.path)
+		io.WriteString(w, "File "+df.name+" is deleted")
+
 		return nil
 	}
 	return nil
