@@ -1,4 +1,4 @@
-#simple-file-server
+# simple-file-server
 
 ## Build and Run
 - **Build docker image**
@@ -11,6 +11,7 @@ docker build -t simple-file-server:v1 .
 - **Run container**
 ```docker run -p 8080:8080 -v /root/data:/go/data simple-file-server:v1```
 
+
 - **To build source code and rebuild docker image**
 ``` bash
 cd src code directory (cd simple-file-server)
@@ -18,6 +19,7 @@ go get "github.com/gorilla/mux"
 go get "gopkg.in/mgo.v2"
 CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . 
 ```
+
 
 ## API syntax
 - Read file: filename.txt:
@@ -33,7 +35,10 @@ curl --form uploadfile=@filename.txt  http://localhost:8080/upload
 curl http://127.0.0.1:8080/delete?file=filename.txt
 ```
 
+
 ## Know bug:
+
+=======
 
 
 ## Limitations:
