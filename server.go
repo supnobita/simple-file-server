@@ -4,23 +4,33 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 var (
 	//contain key=md5 and value=path of file
-	hashmap  map[string]string
-	datapath string
+	//hashmap  map[string]string
+	datapath  string
+	hashMongo HashDAO
 )
 
 func main() {
+
+	r := mux.NewRouter()
+
 	port := 8080
-	http.HandleFunc("/read", readfileHandler)
-	http.HandleFunc("/upload", uploadfileHandler)
-	http.HandleFunc("/delete", deletefileHandler)
-	hashmap = make(map[string]string)
+	r.HandleFunc("/read", readfileHandler)
+	r.HandleFunc("/upload", uploadfileHandler)
+	r.HandleFunc("/delete", deletefileHandler)
+
+	//hashmap = make(map[string]string)
+	hashMongo := HashDAO{"mongodb://mongoadmin:secret@mongo/?connect=direct&authMechanism=SCRAM-SHA-1", "storage"}
+	hashMongo.Connect()
+
 	datapath = "data/"
 	log.Printf("Server starting on port %v\n", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", port), nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%v", port), r))
 }
 
 //http://127.0.0.1/read?file=IWantToDownloadThisFile.zip
