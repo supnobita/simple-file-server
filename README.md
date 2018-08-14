@@ -12,6 +12,7 @@ docker build -t simple-file-server:v1 .
 ```docker run -p 8080:8080 -v /root/data:/go/data simple-file-server:v1```
 
 - **To build source code and rebuild docker image**
+
 cd src code directory (cd simple-file-server)
 go get "github.com/gorilla/mux"
 go get "gopkg.in/mgo.v2"
