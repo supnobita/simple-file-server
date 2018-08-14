@@ -16,7 +16,8 @@ docker build -t simple-file-server:v1 .
 cd src code directory (cd simple-file-server)
 go get "github.com/gorilla/mux"
 go get "gopkg.in/mgo.v2"
-CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . ```
+CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . 
+```
 
 ## API syntax
 - Read file: filename.txt:
