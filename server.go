@@ -25,7 +25,7 @@ func main() {
 	r.HandleFunc("/delete", deletefileHandler)
 
 	//hashmap = make(map[string]string)
-	hashMongo := HashDAO{"mongodb://mongoadmin:secret@127.0.0.1/?connect=direct&authMechanism=SCRAM-SHA-1", "storage"}
+	hashMongo := HashDAO{"mongodb://mongoadmin:secret@mongo/?connect=direct&authMechanism=SCRAM-SHA-1", "storage"}
 	hashMongo.Connect()
 
 	datapath = "data/"
