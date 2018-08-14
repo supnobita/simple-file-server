@@ -13,6 +13,8 @@ docker build -t simple-file-server:v1 .
 
 - **To build source code and rebuild docker image**
 cd src code directory (cd simple-file-server)
+go get "github.com/gorilla/mux"
+go get "gopkg.in/mgo.v2"
 run cmd ``` CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server . ```
 
 ## API syntax
