@@ -5,19 +5,19 @@ services:
   mongo:
     image: mongo
     restart: always
-    ports: 
+    ports:
       - 27017:27017
     environment:
       MONGO_INITDB_ROOT_USERNAME: mongoadmin
       MONGO_INITDB_ROOT_PASSWORD: secret
       MONGO_INITDB_DATABASE: storage
-    volumes: 
+    volumes:
       - ./database/data:/data/db
 
   web:
-    image: supnobita/simple-file-server:v2
+    image: simple-file-server:v3
     restart: always
-    ports: 
+    ports:
       - 8080:8080
-    volumes: 
-      - ./data:/go/data
+    volumes:
+      - ./data:/data
