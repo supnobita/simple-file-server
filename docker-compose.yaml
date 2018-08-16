@@ -15,7 +15,7 @@ services:
       - ./database/data:/data/db
 
   web:
-    image: simple-file-server:v3
+    image: supnobita/simple-file-server:v3
     restart: always
     ports:
       - 8080:8080
