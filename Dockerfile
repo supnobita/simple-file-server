@@ -4,7 +4,7 @@ MAINTAINER "supnobita@gmail.com"
 
 ADD server /
 RUN mkdir data
-VOLUME [ "data" ]
+VOLUME [ "/data" ]
 CMD ["/server"]
 
 EXPOSE 8080
